@@ -1,0 +1,27 @@
+{
+  "word": "ephemeral",
+  "phonetic": "/ɪˈfɛmərəl/",
+  "part_of_speech": "adjective",
+  "message": "Un adjectif décrivant quelque chose de très court et de nature passagère.",
+  "translation": "éphémère",
+  "definition": "Qui ne dure que très peu de temps, qui est passager ou fugace.",
+  "synonyms": [
+    "transient",
+    "fleeting",
+    "momentary"
+  ],
+  "examples": [
+    {
+      "en": "The beauty of a sunset is ephemeral.",
+      "fr": "La beauté d'un coucher de soleil est éphémère."
+    },
+    {
+      "en": "Fame in the age of social media can be ephemeral.",
+      "fr": "La célébrité à l'ère des réseaux sociaux peut être éphémère."
+    },
+    {
+      "en": "They enjoyed the ephemeral joy of a summer breeze.",
+      "fr": "Ils ont apprécié la joie éphémère d'une brise estivale."
+    }
+  ]
+}

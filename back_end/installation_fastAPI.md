@@ -20,3 +20,6 @@ fastapi dev main.py
 
 Pour lancer le serveur sur un autre port
 fastapi dev main.py --port 8001
+
+Pour lancer front vue sur autre port
+npm run dev -- --port 5174

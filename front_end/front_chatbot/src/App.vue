@@ -1,29 +1,53 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import axios from 'axios'
+import { useChatStore } from './stores/chatStore'
 
+const store = useChatStore()
 const word = ref('')
 const loading = ref(false)
-const result = ref(null)
 const error = ref('')
-const resultsContainer = ref(null)
+const sidebarOpen = ref(false)
+
+const activeConversation = computed(() => {
+  return store.conversations.find(c => c.id === store.activeConversationId)
+})
+
+const messages = computed(() => activeConversation.value?.messages || [])
+const showHeader = computed(() => messages.value.length === 0)
 
 const learnWord = async () => {
   if (!word.value.trim() || loading.value) return
   
+  const currentWord = word.value.trim()
   loading.value = true
   error.value = ''
   
+  // 1. Add user message
+  store.addMessageToActive({
+    type: 'user',
+    text: currentWord,
+    timestamp: new Date().toISOString()
+  })
+  
+  word.value = ''
+  await nextTick()
+  scrollToBottom()
+  
   try {
     const response = await axios.post('http://localhost:8001/learn-word', {
-      word: word.value
+      word: currentWord
     })
-    result.value = response.data
-    word.value = '' // Reset input after success like a chat
     
-    // Scroll to bottom after result appears
+    // 2. Add AI message
+    store.addMessageToActive({
+      type: 'ai',
+      ...response.data,
+      timestamp: new Date().toISOString()
+    })
+    
     await nextTick()
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+    scrollToBottom()
   } catch (err) {
     console.error(err)
     error.value = "Oups ! Impossible de récupérer les informations pour ce mot."
@@ -31,109 +55,168 @@ const learnWord = async () => {
     loading.value = false
   }
 }
+
+const scrollToBottom = () => {
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+}
+
+const toggleSidebar = () => {
+  sidebarOpen.value = !sidebarOpen.value
+}
+
+const startNewChat = () => {
+  store.createNewConversation()
+  if (window.innerWidth < 1024) sidebarOpen.value = false
+}
+
+const selectChat = (id) => {
+  store.switchConversation(id)
+  if (window.innerWidth < 1024) sidebarOpen.value = false
+}
+
+onMounted(() => {
+  scrollToBottom()
+})
 </script>
 
 <template>
-  <div class="app-wrapper">
-    <!-- Background Elements -->
-    <div class="mesh-gradient"></div>
-    
-    <div class="container">
-      <header class="main-header" :class="{ 'minimized': result }">
-        <div class="logo-area">
-          <h1 class="logo-text">Vocab<span>AI</span></h1>
+  <div class="dina-app" :class="{ 'sidebar-open': sidebarOpen }">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <button @click="startNewChat" class="new-chat-btn">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="currentColor"/></svg>
+          <span>Nouvelle discussion</span>
+        </button>
+      </div>
+      
+      <div class="history-list">
+        <div 
+          v-for="convo in store.conversations" 
+          :key="convo.id"
+          class="history-item"
+          :class="{ active: convo.id === store.activeConversationId }"
+          @click="selectChat(convo.id)"
+        >
+          <svg viewBox="0 0 24 24" class="convo-icon"><path d="M21 15.46l-5.27-.61-2.52-4.74-2.52 4.74-5.27.61 3.81 3.71-.9 5.25L13 21.88l4.67 2.45-.9-5.25 3.81-3.71-.63-4.46z" fill="currentColor"/></svg>
+          <span class="convo-title">{{ convo.title }}</span>
+          <button @click.stop="store.deleteConversation(convo.id)" class="delete-btn">
+            <svg viewBox="0 0 24 24" class="icon"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z" fill="currentColor"/></svg>
+          </button>
         </div>
-        <p class="hero-subtitle">Votre compagnon linguistique intelligent, inspiré par la recherche et l'innovation.</p>
-      </header>
+      </div>
+      
+      <div class="sidebar-footer">
+        <div class="user-profile">
+          <div class="avatar">D</div>
+          <span>Utilisateur Dina</span>
+        </div>
+      </div>
+    </aside>
 
-      <main class="content-area" ref="resultsContainer">
-        <transition name="slide-up">
-          <div v-if="result" class="result-display">
-            <div class="word-card">
-              <div class="card-header">
-                <div class="badge-row">
-                  <span class="badge secondary" v-if="result.part_of_speech">{{ result.part_of_speech }}</span>
-                  <span class="badge primary">Apprentissage</span>
-                </div>
-                
-                <div class="title-section">
-                  <h2 class="main-word">{{ result.word }}</h2>
-                  <div class="phonetic" v-if="result.phonetic">{{ result.phonetic }}</div>
-                </div>
-                
-                <div class="translation-highlight">
-                  {{ result.translation }}
-                </div>
+    <!-- Overlay for mobile sidebar -->
+    <div v-if="sidebarOpen" class="sidebar-overlay" @click="toggleSidebar"></div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+      <!-- Top Navigation -->
+      <nav class="top-nav">
+        <button @click="toggleSidebar" class="burger-btn">
+          <svg viewBox="0 0 24 24" class="icon" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <span class="app-name">DinaGPT</span>
+        <div class="nav-spacer"></div>
+      </nav>
+
+      <div class="chat-container">
+        <!-- Initial Header -->
+        <header v-if="showHeader" class="hero-header">
+          <div class="logo-circle">D</div>
+          <h1 class="hero-title">Comment puis-je vous aider aujourd'hui ?</h1>
+          <p class="hero-subtitle">Explorez le langage avec DinaGPT, votre assistant linguistique intelligent.</p>
+        </header>
+
+        <!-- Message List -->
+        <div class="messages-list">
+          <div 
+            v-for="(msg, idx) in messages" 
+            :key="idx"
+            class="message-wrapper"
+            :class="msg.type"
+          >
+            <div class="message-bubble">
+              <!-- User Message -->
+              <div v-if="msg.type === 'user'" class="user-text">
+                {{ msg.text }}
               </div>
 
-              <div class="card-body">
-                <section class="info-group">
-                  <div class="section-title">
-                    <svg viewBox="0 0 24 24" class="icon"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" fill="currentColor"/></svg>
-                    <span>Signification</span>
+              <!-- AI Message / Result Card -->
+              <div v-else class="ai-response">
+                <div class="word-card-simple">
+                  <div class="word-header">
+                    <span class="word-nature" v-if="msg.part_of_speech">{{ msg.part_of_speech }}</span>
+                    <h2 class="word-title">{{ msg.word }}</h2>
+                    <span class="word-phonetic" v-if="msg.phonetic">{{ msg.phonetic }}</span>
                   </div>
-                  <p class="definition-text">{{ result.definition }}</p>
-                </section>
+                  
+                  <div class="word-translation">{{ msg.translation }}</div>
+                  
+                  <div class="word-section">
+                    <label>Signification</label>
+                    <p>{{ msg.definition }}</p>
+                  </div>
 
-                <section class="info-group" v-if="result.synonyms && result.synonyms.length">
-                  <div class="section-title">
-                    <span>Synonymes</span>
+                  <div v-if="msg.synonyms?.length" class="word-section">
+                    <label>Synonymes</label>
+                    <div class="syn-tags">
+                      <span v-for="s in msg.synonyms" :key="s" class="tag">{{ s }}</span>
+                    </div>
                   </div>
-                  <div class="synonyms-list">
-                    <span v-for="syn in result.synonyms" :key="syn" class="syn-tag">{{ syn }}</span>
-                  </div>
-                </section>
 
-                <div class="divider"></div>
-
-                <section class="info-group">
-                  <div class="section-title">
-                    <svg viewBox="0 0 24 24" class="icon"><path d="M21 15.46l-5.27-.61-2.52-4.74-2.52 4.74-5.27.61 3.81 3.71-.9 5.25L13 21.88l4.67 2.45-.9-5.25 3.81-3.71-.63-4.46z" fill="currentColor"/></svg>
-                    <span>Exemples immersifs</span>
-                  </div>
-                  <div class="examples-stack">
-                    <div 
-                      v-for="(item, index) in result.examples" 
-                      :key="index"
-                      class="example-item"
-                    >
-                      <div class="example-content">
-                        <p class="en-text">{{ item.en }}</p>
-                        <p class="fr-text">{{ item.fr }}</p>
+                  <div class="word-section">
+                    <label>Exemples</label>
+                    <div class="example-list">
+                      <div v-for="(ex, i) in msg.examples" :key="i" class="example-box">
+                        <p class="en">{{ ex.en }}</p>
+                        <p class="fr">{{ ex.fr }}</p>
                       </div>
                     </div>
                   </div>
-                </section>
+                </div>
               </div>
             </div>
           </div>
-        </transition>
 
-        <div v-if="error" class="error-toast">
-          {{ error }}
+          <div v-if="loading" class="message-wrapper ai">
+            <div class="message-bubble loading-bubble">
+              <div class="dot-pulse"></div>
+            </div>
+          </div>
+
+          <div v-if="error" class="error-msg">
+            {{ error }}
+          </div>
         </div>
-      </main>
+      </div>
 
-      <!-- Fixed Bottom Search Bar -->
-      <footer class="footer-controls">
-        <div class="search-container">
-          <div class="input-wrapper">
+      <!-- Search Area -->
+      <footer class="input-area">
+        <div class="input-container">
+          <div class="input-box">
             <input 
               v-model="word" 
               @keyup.enter="learnWord"
               type="text" 
-              placeholder="Quel mot souhaitez-vous explorer aujourd'hui ?" 
-              class="chat-input"
+              placeholder="Testez un mot ou une expression..." 
               :disabled="loading"
             />
-            <button @click="learnWord" :disabled="loading || !word.trim()" class="send-button">
-              <svg v-if="!loading" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <div v-else class="chat-loader"></div>
+            <button @click="learnWord" :disabled="loading || !word.trim()" class="send-btn">
+              <svg viewBox="0 0 24 24" class="icon"><path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
-          <p class="input-hint">Propulsé par Gemma 4 & Novita AI</p>
+          <p class="disclaimer">DinaGPT peut faire des erreurs. Vérifiez les informations importantes.</p>
         </div>
       </footer>
     </div>
@@ -141,416 +224,264 @@ const learnWord = async () => {
 </template>
 
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
-  --primary: #3b82f6;
-  --primary-glow: rgba(59, 130, 246, 0.5);
-  --bg-dark: #0a0a0c;
-  --card-bg: rgba(23, 23, 26, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --text-main: #f4f4f5;
-  --text-muted: #a1a1aa;
+  --bg-sidebar: #171717;
+  --bg-main: #212121;
+  --bg-bubble-user: #2f2f2f;
+  --text-main: #ececec;
+  --text-muted: #b4b4b4;
+  --accent: #3b82f6;
+  --border: rgba(255, 255, 255, 0.1);
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  background-color: var(--bg-dark);
-  color: var(--text-main);
-  overflow-x: hidden;
-  -webkit-font-smoothing: antialiased;
-}
-
-.app-wrapper {
-  position: relative;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Mesh Gradient Background */
-.mesh-gradient {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: -1;
-  background: 
-    radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, rgba(147, 51, 234, 0.1) 0px, transparent 50%),
-    radial-gradient(at 50% 100%, rgba(59, 130, 246, 0.05) 0px, transparent 50%);
-  filter: blur(80px);
-}
-
-.container {
-  max-width: 800px;
-  margin: 0 auto;
-  width: 100%;
-  padding: 0 1.5rem;
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
-
-/* Header Styles */
-.main-header {
-  padding-top: 15vh;
-  text-align: center;
-  transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.main-header.minimized {
-  padding-top: 3rem;
-  transform: scale(0.9);
-  opacity: 0.8;
-}
-
-.logo-area {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.logo-icon {
-  width: 42px;
-  height: 42px;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  color: white;
-  font-size: 1.5rem;
-  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);
-}
-
-.logo-text {
-  font-size: 2.2rem;
-  font-weight: 700;
-  letter-spacing: -1px;
-}
-
-.logo-text span {
-  background: linear-gradient(to right, #3b82f6, #8b5cf6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.hero-subtitle {
-  color: var(--text-muted);
-  font-size: 1.1rem;
-  max-width: 500px;
-  margin: 0 auto;
-  line-height: 1.6;
-}
-
-/* Content Area */
-.content-area {
-  flex: 1;
-  padding: 4rem 0 10rem;
-}
-
-.result-display {
-  width: 100%;
-  animation: fadeIn 1s ease-out;
-}
-
-.word-card {
-  background: rgba(23, 23, 26, 0.4);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 2.5rem;
-  padding: 0;
-  overflow: hidden;
-  box-shadow: 
-    0 40px 100px -20px rgba(0, 0, 0, 0.6),
-    inset 0 1px 1px rgba(255, 255, 255, 0.05);
-  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.card-header {
-  padding: 3rem 3rem 2rem;
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.05) 0%, transparent 100%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-}
-
-.badge-row {
-  display: flex;
-  gap: 0.75rem;
-  margin-bottom: 2rem;
-}
-
-.badge {
-  padding: 0.5rem 1.25rem;
-  border-radius: 2rem;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-.badge.primary {
-  background: var(--primary);
-  color: white;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-}
-
-.badge.secondary {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-muted);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.title-section {
-  display: flex;
-  align-items: baseline;
-  gap: 1.5rem;
-  margin-bottom: 1rem;
-}
-
-.main-word {
-  font-size: 5rem;
-  font-weight: 800;
-  letter-spacing: -4px;
-  line-height: 0.9;
-  background: linear-gradient(to bottom, #fff 40%, rgba(255,255,255,0.7));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 20px rgba(59, 130, 246, 0.2));
-}
-
-.phonetic {
   font-family: 'Inter', sans-serif;
-  font-size: 1.5rem;
-  color: var(--primary);
-  opacity: 0.8;
-  font-weight: 300;
-}
-
-.translation-highlight {
-  font-size: 1.8rem;
-  font-weight: 600;
+  background-color: var(--bg-main);
   color: var(--text-main);
-  opacity: 0.9;
+  height: 100vh;
+  width: 100%;
+  /* overflow: hidden; */
 }
 
-.card-body {
-  padding: 3rem;
+.dina-app {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
 }
 
-.section-title {
+/* Sidebar */
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background-color: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1000;
+}
+
+.sidebar-header { padding: 1rem; }
+
+.new-chat-btn {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-bottom: 1.5rem;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-}
-
-.section-title .icon {
-  width: 18px;
-  height: 18px;
-  opacity: 0.5;
-}
-
-.definition-text {
-  font-size: 1.4rem;
-  line-height: 1.6;
-  color: #e4e4e7;
-  font-weight: 400;
-}
-
-.synonyms-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.syn-tag {
-  background: rgba(59, 130, 246, 0.08);
-  color: #60a5fa;
-  padding: 0.4rem 1rem;
-  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text-main);
   font-size: 0.9rem;
-  font-weight: 500;
-  border: 1px solid rgba(59, 130, 246, 0.1);
+  cursor: pointer;
+  transition: background 0.2s;
 }
 
-.divider {
-  height: 1px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.05), transparent);
-  margin: 3rem 0;
+.new-chat-btn:hover { background: rgba(255,255,255,0.05); }
+
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
 }
 
-.examples-stack {
-  display: grid;
-  gap: 1.5rem;
-}
-
-.example-item {
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  margin-bottom: 0.25rem;
   position: relative;
-  padding-left: 2rem;
-  border-left: 2px solid rgba(59, 130, 246, 0.2);
-  transition: all 0.3s ease;
+  transition: background 0.2s;
 }
 
-.example-item:hover {
-  border-left-color: var(--primary);
-  transform: translateX(8px);
+.history-item:hover { background: rgba(255,255,255,0.05); }
+.history-item.active { background: rgba(255,255,255,0.1); }
+
+.convo-icon { width: 16px; height: 16px; color: var(--text-muted); }
+.convo-title { flex: 1; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.delete-btn {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
 }
 
-.en-text {
-  font-size: 1.25rem;
-  color: white;
-  margin-bottom: 0.5rem;
+.history-item:hover .delete-btn { opacity: 1; }
+.delete-btn:hover { color: #f87171; }
+
+.sidebar-footer { padding: 1rem; border-top: 1px solid var(--border); }
+.user-profile { display: flex; align-items: center; gap: 0.75rem; font-size: 0.9rem; }
+.avatar { width: 32px; height: 32px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+
+/* Main Content */
+.main-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  height: 100%;
+  background: var(--bg-main);
+  overflow-y: auto;
+}
+
+.top-nav {
+  height: 56px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-main);
+}
+
+.burger-btn { background: transparent; border: none; color: var(--text-main); cursor: pointer; display: none; margin-right: 1rem; }
+.app-name { font-weight: 600; font-size: 1.1rem; }
+
+/* Chat Container */
+.chat-container {
+  flex: 1;
+  padding: 2rem 1rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.hero-header {
+  margin: 10vh auto;
+  text-align: center;
+  max-width: 600px;
+  width: 100%;
+}
+
+.logo-circle { width: 80px; height: 80px; border: 2px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 2rem; font-size: 2.5rem; font-weight: 800; }
+.hero-title { font-size: 2.5rem; font-weight: 600; margin-bottom: 1rem; letter-spacing: -1px; }
+.hero-subtitle { color: var(--text-muted); font-size: 1.1rem; }
+
+.messages-list {
+  width: 100%;
+  max-width: 800px;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  margin: 0 auto;
+}
+
+.message-wrapper { display: flex; width: 100%; }
+.message-wrapper.user { justify-content: flex-start; }
+.message-wrapper.ai { justify-content: flex-end; }
+
+.message-bubble { max-width: 85%; }
+
+.user-text {
+  background-color: var(--bg-bubble-user);
+  padding: 0.75rem 1.25rem;
+  border-radius: 1.5rem;
+  font-size: 1rem;
   line-height: 1.5;
 }
 
-.fr-text {
-  font-size: 1rem;
-  color: var(--text-muted);
-  font-weight: 400;
+/* Simplified AI Result Card */
+.word-card-simple {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 1.5rem;
+  padding: 2rem;
 }
 
-/* Footer / Search controls */
-.footer-controls {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  padding: 2rem 1.5rem 3rem;
-  background: linear-gradient(to top, var(--bg-dark) 50%, transparent);
-  pointer-events: none;
-  z-index: 100;
+.word-header { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 0.5rem; }
+.word-nature { font-size: 0.7rem; color: var(--accent); text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
+.word-title { font-size: 2.5rem; font-weight: 700; }
+.word-phonetic { font-size: 1.1rem; color: var(--text-muted); }
+
+.word-translation { font-size: 1.4rem; font-weight: 500; margin-bottom: 2rem; opacity: 0.9; }
+
+.word-section { margin-bottom: 1.5rem; }
+.word-section label { display: block; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; font-weight: 600; }
+.word-section p { font-size: 1.1rem; line-height: 1.5; }
+
+.syn-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.tag { background: rgba(59, 130, 246, 0.1); color: var(--accent); padding: 0.3rem 0.8rem; border-radius: 0.5rem; font-size: 0.85rem; }
+
+.example-box { margin-bottom: 1rem; padding-left: 1rem; border-left: 2px solid var(--border); }
+.example-box:last-child { margin-bottom: 0; }
+.example-box .en { font-size: 1.1rem; margin-bottom: 0.25rem; }
+.example-box .fr { font-size: 0.9rem; color: var(--text-muted); }
+
+/* Input Area */
+.input-area {
+  padding: 1rem 1rem 2.5rem;
+  background: linear-gradient(to top, var(--bg-main) 70%, transparent);
 }
 
-.search-container {
-  max-width: 800px;
-  margin: 0 auto;
-  pointer-events: auto;
-}
+.input-container { max-width: 800px; margin: 0 auto; width: 100%; }
 
-.input-wrapper {
-  background: rgba(30,30,35,0.6);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 2rem;
-  padding: 0.75rem 0.75rem 0.75rem 1.5rem;
+.input-box {
+  background: var(--bg-bubble-user);
+  border: 1px solid var(--border);
+  border-radius: 1.5rem;
+  padding: 0.5rem 0.5rem 0.5rem 1.5rem;
   display: flex;
   align-items: center;
-  box-shadow: 0 30px 60px rgba(0,0,0,0.5);
-  transition: all 0.3s;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.2);
 }
 
-.input-wrapper:focus-within {
-  border-color: rgba(59, 130, 246, 0.4);
-  background: rgba(35,35,40,0.8);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.2), 0 30px 60px rgba(0,0,0,0.5);
-}
-
-.chat-input {
+.input-box input {
   flex: 1;
   background: transparent;
   border: none;
   color: white;
-  font-size: 1.1rem;
-  padding: 0.8rem 0;
+  font-size: 1rem;
+  padding: 0.75rem 0;
   outline: none;
-  font-family: inherit;
 }
 
-.send-button {
-  background: var(--primary);
-  color: white;
+.send-btn {
+  width: 40px;
+  height: 40px;
+  background: var(--accent);
   border: none;
-  width: 48px;
-  height: 48px;
-  border-radius: 1.2rem;
+  border-radius: 50%;
+  color: white;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);
+  transition: transform 0.2s;
 }
 
-.send-button:hover:not(:disabled) {
-  transform: translateY(-2px) scale(1.05);
-  box-shadow: 0 12px 20px rgba(59, 130, 246, 0.4);
-}
+.send-btn:hover:not(:disabled) { transform: scale(1.1); }
+.send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-.send-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  filter: grayscale(1);
-}
+.disclaimer { text-align: center; margin-top: 0.75rem; font-size: 0.7rem; color: var(--text-muted); }
 
-.input-hint {
-  text-align: center;
-  margin-top: 1rem;
-  font-size: 0.7rem;
-  color: #4a4a4e;
-  font-weight: 500;
-  letter-spacing: 0.05em;
-}
+/* Loading */
+.loading-bubble { background: rgba(255,255,255,0.05); padding: 1.5rem 2rem; border-radius: 1.5rem; }
+.dot-pulse { width: 10px; height: 10px; background: var(--text-muted); border-radius: 50%; animation: pulse 1s infinite alternate; }
+@keyframes pulse { from { opacity: 0.3; transform: scale(0.8); } to { opacity: 1; transform: scale(1.2); } }
 
-/* Utils */
-.error-toast {
-  background: rgba(239, 68, 68, 0.1);
-  color: #f87171;
-  padding: 1rem 1.5rem;
-  border-radius: 1rem;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  text-align: center;
-  margin-top: 2rem;
-}
-
-.chat-loader {
-  width: 20px;
-  height: 20px;
-  border: 3px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  border-top-color: white;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Transitions */
-.slide-up-enter-active {
-  transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.slide-up-enter-from {
-  opacity: 0;
-  transform: translateY(60px) scale(0.95);
+/* Mobile Adaptations */
+@media (max-width: 1024px) {
+  .sidebar { position: fixed; left: 0; top: 0; bottom: 0; transform: translateX(-100%); width: 280px; }
+  .sidebar-open .sidebar { transform: translateX(0); }
+  .burger-btn { display: block; }
+  .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999; }
 }
 
 @media (max-width: 640px) {
-  .main-word { font-size: 3rem; letter-spacing: -2px; }
-  .card-header, .card-body { padding: 2rem 1.5rem; }
-  .word-card { border-radius: 1.5rem; }
-  .phonetic { font-size: 1.1rem; }
+  .hero-title { font-size: 1.8rem; }
+  .word-title { font-size: 1.8rem; }
 }
+
+.icon { width: 20px; height: 20px; }
 </style>
