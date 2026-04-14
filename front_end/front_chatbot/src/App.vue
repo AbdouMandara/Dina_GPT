@@ -2,31 +2,44 @@
 import { ref, computed, nextTick, onMounted } from 'vue'
 import axios from 'axios'
 import { useChatStore } from './stores/chatStore'
+import { marked } from 'marked'
 
 const store = useChatStore()
 const word = ref('')
 const loading = ref(false)
 const error = ref('')
-const sidebarOpen = ref(false)
+const sidebarOpen = ref(window.innerWidth > 1024)
+const isDark = ref(true)
+
+const activeMenuId = ref(null)
+const showAboutModal = ref(false)
+
+const toggleMenu = (id, event) => {
+  activeMenuId.value = activeMenuId.value === id ? null : id
+}
 
 const activeConversation = computed(() => {
   return store.conversations.find(c => c.id === store.activeConversationId)
 })
 
 const messages = computed(() => activeConversation.value?.messages || [])
-const showHeader = computed(() => messages.value.length === 0)
+const showWelcome = computed(() => messages.value.length === 0)
+
+const parseMarkdown = (text) => {
+  if (!text) return ''
+  return marked.parse(text)
+}
 
 const learnWord = async () => {
   if (!word.value.trim() || loading.value) return
   
-  const currentWord = word.value.trim()
+  const currentText = word.value.trim()
   loading.value = true
   error.value = ''
   
-  // 1. Add user message
   store.addMessageToActive({
     type: 'user',
-    text: currentWord,
+    text: currentText,
     timestamp: new Date().toISOString()
   })
   
@@ -34,30 +47,53 @@ const learnWord = async () => {
   await nextTick()
   scrollToBottom()
   
+  // Logic to determine if it's a general question or a dictionary lookup
+  const wordsCount = currentText.split(/\s+/).length;
+  
   try {
-    const response = await axios.post('http://localhost:8001/learn-word', {
-      word: currentWord
-    })
-    
-    // 2. Add AI message
-    store.addMessageToActive({
-      type: 'ai',
-      ...response.data,
-      timestamp: new Date().toISOString()
-    })
+    if (wordsCount > 3 || currentText.includes('?')) {
+      // General Chat Mode
+      const response = await axios.post('http://localhost:8001/chat', {
+        prompt: currentText
+      })
+      
+      const aiResponseText = response.data.choices?.[0]?.message?.content || "Je n'ai pas pu générer de réponse."
+      
+      store.addMessageToActive({
+        type: 'ai',
+        mode: 'chat',
+        text: aiResponseText,
+        timestamp: new Date().toISOString()
+      })
+    } else {
+      // Dictionary Mode
+      const response = await axios.post('http://localhost:8001/learn-word', {
+        word: currentText
+      })
+      
+      store.addMessageToActive({
+        type: 'ai',
+        mode: 'dictionary',
+        ...response.data,
+        timestamp: new Date().toISOString()
+      })
+    }
     
     await nextTick()
     scrollToBottom()
   } catch (err) {
     console.error(err)
-    error.value = "Oups ! Impossible de récupérer les informations pour ce mot."
+    error.value = "Oups ! Une erreur s'est produite lors de la communication avec l'IA."
   } finally {
     loading.value = false
   }
 }
 
 const scrollToBottom = () => {
-  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+  const container = document.querySelector('.messages-list-wrapper')
+  if (container) {
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+  }
 }
 
 const toggleSidebar = () => {
@@ -76,110 +112,124 @@ const selectChat = (id) => {
 
 onMounted(() => {
   scrollToBottom()
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 1024) sidebarOpen.value = true
+  })
+  window.addEventListener('click', () => {
+    activeMenuId.value = null
+  })
 })
 </script>
 
 <template>
-  <div class="dina-app" :class="{ 'sidebar-open': sidebarOpen }">
+  <div class="chatgpt-app" :class="{ 'sidebar-closed': !sidebarOpen }">
     <!-- Sidebar -->
     <aside class="sidebar">
-      <div class="sidebar-header">
-        <button @click="startNewChat" class="new-chat-btn">
-          <svg viewBox="0 0 24 24" class="icon"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="currentColor"/></svg>
-          <span>Nouvelle discussion</span>
+      <div class="sidebar-top">
+        <div class="sidebar-header">
+          <i class='bx bx-sidebar sidebar-toggle-btn' @click.stop="toggleSidebar" ></i>
+        </div>
+        <button @click="startNewChat" class="sidebar-btn new-chat">
+          <div class="icon-wrap"><i class='bx bx-edit-alt'></i></div>
+          <span>Nouveau chat</span>
         </button>
-      </div>
-      
-      <div class="history-list">
-        <div 
-          v-for="convo in store.conversations" 
-          :key="convo.id"
-          class="history-item"
-          :class="{ active: convo.id === store.activeConversationId }"
-          @click="selectChat(convo.id)"
-        >
-          <svg viewBox="0 0 24 24" class="convo-icon"><path d="M21 15.46l-5.27-.61-2.52-4.74-2.52 4.74-5.27.61 3.81 3.71-.9 5.25L13 21.88l4.67 2.45-.9-5.25 3.81-3.71-.63-4.46z" fill="currentColor"/></svg>
-          <span class="convo-title">{{ convo.title }}</span>
-          <button @click.stop="store.deleteConversation(convo.id)" class="delete-btn">
-            <svg viewBox="0 0 24 24" class="icon"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z" fill="currentColor"/></svg>
-          </button>
+
+        <!-- Real Chat History -->
+        <div class="sidebar-section history">
+          <label>Récents</label>
+          <div 
+            v-for="convo in store.conversations.slice(0, 10)" 
+            :key="convo.id"
+            class="nav-item chat-history-item"
+            :class="{ active: convo.id === store.activeConversationId }"
+            @click="selectChat(convo.id)"
+          >
+            <span>{{ convo.title }}</span>
+            <div class="item-action-wrapper">
+              <button @click.stop="toggleMenu(convo.id)" class="item-action">
+                <i class='bx bx-dots-horizontal-rounded'></i>
+              </button>
+              <div v-if="activeMenuId === convo.id" class="action-dropdown" @click.stop>
+                <button @click="store.deleteConversation(convo.id); activeMenuId = null" class="dropdown-item delete">
+                  <i class='bx bx-trash'></i> Supprimer
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       
       <div class="sidebar-footer">
-        <div class="user-profile">
-          <div class="avatar">D</div>
-          <span>Utilisateur Dina</span>
-        </div>
+          <button class="upgrade-btn" @click="showAboutModal = true">
+             <i class='bx bx-info-circle' style="margin-right: 4px;"></i> En savoir plus
+          </button>
       </div>
     </aside>
 
-    <!-- Overlay for mobile sidebar -->
-    <div v-if="sidebarOpen" class="sidebar-overlay" @click="toggleSidebar"></div>
-
     <!-- Main Content -->
-    <div class="main-content">
-      <!-- Top Navigation -->
-      <nav class="top-nav">
-        <button @click="toggleSidebar" class="burger-btn">
-          <svg viewBox="0 0 24 24" class="icon" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
+    <main class="main-content">
+      <!-- Header -->
+      <header class="chat-header">
+        <button v-if="!sidebarOpen" @click="toggleSidebar" class="mobile-sidebar-toggle">
+          <i class='bx bx-sidebar'></i>
         </button>
-        <span class="app-name">DinaGPT</span>
-        <div class="nav-spacer"></div>
-      </nav>
+        
+        <div class="model-dropdown">
+          <span>DinaGPT-A</span>
+          <i class='bx bx-chevron-down'></i>
+        </div>
 
-      <div class="chat-container">
-        <!-- Initial Header -->
-        <header v-if="showHeader" class="hero-header">
-          <div class="logo-circle">D</div>
-          <h1 class="hero-title">Comment puis-je vous aider aujourd'hui ?</h1>
-          <p class="hero-subtitle">Explorez le langage avec DinaGPT, votre assistant linguistique intelligent.</p>
-        </header>
+       
+      </header>
 
-        <!-- Message List -->
-        <div class="messages-list">
-          <div 
-            v-for="(msg, idx) in messages" 
-            :key="idx"
-            class="message-wrapper"
-            :class="msg.type"
-          >
-            <div class="message-bubble">
+      <!-- Chat Body -->
+      <div class="messages-list-wrapper">
+        <div class="messages-container">
+          <!-- Welcome Screen -->
+          <div v-if="showWelcome" class="welcome-screen">
+            <div class="welcome-logo">
+              <i class='bx bxs-bot'></i>
+            </div>
+          </div>
+
+          <!-- Messages -->
+          <div v-for="(msg, idx) in messages" :key="idx" class="message-row" :class="msg.type">
+            <div class="message-content">
               <!-- User Message -->
-              <div v-if="msg.type === 'user'" class="user-text">
+              <div v-if="msg.type === 'user'" class="user-bubble">
                 {{ msg.text }}
               </div>
 
-              <!-- AI Message / Result Card -->
-              <div v-else class="ai-response">
-                <div class="word-card-simple">
-                  <div class="word-header">
-                    <span class="word-nature" v-if="msg.part_of_speech">{{ msg.part_of_speech }}</span>
-                    <h2 class="word-title">{{ msg.word }}</h2>
-                    <span class="word-phonetic" v-if="msg.phonetic">{{ msg.phonetic }}</span>
-                  </div>
-                  
-                  <div class="word-translation">{{ msg.translation }}</div>
-                  
-                  <div class="word-section">
-                    <label>Signification</label>
-                    <p>{{ msg.definition }}</p>
-                  </div>
+              <!-- AI Message -->
+              <div v-else class="ai-msg">
+                <div class="ai-avatar">
+                  <i class='bx bxs-bot'></i>
+                </div>
+                <div class="ai-text">
+                  <!-- General Chat Message (Markdown) -->
+                  <div v-if="msg.mode === 'chat'" class="markdown-body" v-html="parseMarkdown(msg.text)"></div>
 
-                  <div v-if="msg.synonyms?.length" class="word-section">
-                    <label>Synonymes</label>
-                    <div class="syn-tags">
-                      <span v-for="s in msg.synonyms" :key="s" class="tag">{{ s }}</span>
+                  <!-- Word Card integration (ChatGPT style) -->
+                  <div v-else class="result-card">
+                    <h2 class="result-title">{{ msg.word }} <small v-if="msg.phonetic">{{ msg.phonetic }}</small></h2>
+                    <p class="result-meta">{{ msg.part_of_speech }} • {{ msg.translation }}</p>
+                    
+                    <div class="result-section">
+                      <h3 class="section-label">1. Signification</h3>
+                      <p>{{ msg.definition }}</p>
                     </div>
-                  </div>
 
-                  <div class="word-section">
-                    <label>Exemples</label>
-                    <div class="example-list">
-                      <div v-for="(ex, i) in msg.examples" :key="i" class="example-box">
-                        <p class="en">{{ ex.en }}</p>
+                    <div v-if="msg.synonyms?.length" class="result-section">
+                      <h3 class="section-label">2. Synonymes</h3>
+                      <div class="tag-list">
+                        <span v-for="s in msg.synonyms" :key="s" class="tag">{{ s }}</span>
+                      </div>
+                    </div>
+
+                    <div v-if="msg.examples?.length" class="result-section">
+                      <h3 class="section-label">3. Exemples</h3>
+                      <div class="example-item" v-for="(ex, i) in msg.examples" :key="i">
+                        <p class="en">"{{ ex.en }}"</p>
                         <p class="fr">{{ ex.fr }}</p>
                       </div>
                     </div>
@@ -189,299 +239,631 @@ onMounted(() => {
             </div>
           </div>
 
-          <div v-if="loading" class="message-wrapper ai">
-            <div class="message-bubble loading-bubble">
-              <div class="dot-pulse"></div>
-            </div>
+          <div v-if="loading" class="message-row ai loading">
+             <div class="ai-avatar"><i class='bx bxs-bot'></i></div>
+             <div class="typing-indicator"><span></span><span></span><span></span></div>
           </div>
-
-          <div v-if="error" class="error-msg">
-            {{ error }}
-          </div>
+          
+          <div v-if="error" class="error-msg">{{ error }}</div>
         </div>
       </div>
 
-      <!-- Search Area -->
+      <!-- Input Area -->
       <footer class="input-area">
-        <div class="input-container">
-          <div class="input-box">
+        <div class="input-wrapper">
+          <div class="input-card">
             <input 
               v-model="word" 
               @keyup.enter="learnWord"
-              type="text" 
-              placeholder="Testez un mot ou une expression..." 
+              placeholder="Poser une question"
               :disabled="loading"
             />
-            <button @click="learnWord" :disabled="loading || !word.trim()" class="send-btn">
-              <svg viewBox="0 0 24 24" class="icon"><path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
+            <div class="input-actions">
+              <button @click="learnWord" class="send-btn" :disabled="!word.trim() || loading">
+                <i class='bx bx-up-arrow-alt'></i>
+              </button>
+            </div>
           </div>
-          <p class="disclaimer">DinaGPT peut faire des erreurs. Vérifiez les informations importantes.</p>
+          <!-- <p class="footer-note">ChatGPT peut faire des erreurs. Envisagez de vérifier les informations importantes.</p> -->
         </div>
       </footer>
+    </main>
+
+    <!-- About Modal -->
+    <div class="modal-overlay" v-if="showAboutModal" @click="showAboutModal = false">
+      <div class="modal-card" @click.stop>
+        <button class="close-btn" @click="showAboutModal = false"><i class='bx bx-x'></i></button>
+        
+        <div class="modal-header">
+          <div class="avatar large">AM</div>
+          <div class="author-details">
+            <h3>Abdou Mandara</h3>
+            <p>Développeur Fullstack</p>
+          </div>
+        </div>
+
+        <div class="modal-body">
+          <div class="info-section">
+            <h4>Mes technos</h4>
+            <div class="tech-tags">
+              <span class="tech-tag laravel"><i class='bx bxl-joomla'></i> Laravel</span>
+              <span class="tech-tag vue"><i class='bx bxl-vuejs'></i> Vue.js</span>
+              <span class="tech-tag fastapi"><i class='bx bxl-python'></i> FastAPI</span>
+            </div>
+          </div>
+
+          <div class="info-section">
+            <h4>Mes réseaux sociaux</h4>
+            <div class="social-grid">
+              <a href="#" class="social-btn"><i class='bx bxl-linkedin-square'></i> LinkedIn</a>
+              <a href="#" class="social-btn"><i class='bx bxl-instagram-alt'></i> Instagram</a>
+              <a href="#" class="social-btn"><i class='bx bxl-tiktok'></i> TikTok</a>
+              <a href="#" class="social-btn"><i class='bx bxl-twitter'></i> X</a>
+            </div>
+          </div>
+
+          <div class="info-section">
+            <h4>Me contacter</h4>
+            <div class="contact-links">
+              <a href="https://wa.me/237693472977" target="_blank" class="contact-link whatsapp"><i class='bx bxl-whatsapp'></i> +237 693472977</a>
+              <a href="mailto:cabdoumandara@gmail.com" class="contact-link email"><i class='bx bx-envelope'></i> Envoyer un email</a>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 
 :root {
-  --bg-sidebar: #171717;
   --bg-main: #212121;
-  --bg-bubble-user: #2f2f2f;
+  --bg-sidebar: #171717;
+  --bg-card: #2f2f2f;
   --text-main: #ececec;
-  --text-muted: #b4b4b4;
-  --accent: #3b82f6;
-  --border: rgba(255, 255, 255, 0.1);
+  --text-dim: #b4b4b4;
+  --border: rgba(255,255,255,0.1);
+  --accent-green: #10a37f;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   background-color: var(--bg-main);
   color: var(--text-main);
-  height: 100vh;
-  width: 100%;
-  /* overflow: hidden; */
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
-.dina-app {
+.chatgpt-app {
   display: flex;
   height: 100vh;
   width: 100%;
-  overflow: hidden;
 }
 
 /* Sidebar */
 .sidebar {
   width: 260px;
-  flex-shrink: 0;
   background-color: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 1000;
+  transition: width 0.3s ease, transform 0.3s ease;
+  flex-shrink: 0;
+  z-index: 100;
 }
 
-.sidebar-header { padding: 1rem; }
+.sidebar-closed .sidebar {
+  width: 0;
+  transform: translateX(-100%);
+  overflow: hidden;
+}
 
-.new-chat-btn {
+.sidebar-top {
+  flex: 1;
+  padding: 0.75rem;
+  overflow-y: auto;
+}
+
+.sidebar-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+.sidebar-toggle-btn {
+  font-size: 1.5rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.2s;
+  opacity: 0.7;
+}
+
+.sidebar-toggle-btn:hover {
+  color: var(--text-main);
+  opacity: 1;
+}
+
+.sidebar-btn.new-chat {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  color: var(--text-main);
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.new-chat-btn:hover { background: rgba(255,255,255,0.05); }
-
-.history-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.5rem;
-}
-
-.history-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
   padding: 0.75rem;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  margin-bottom: 0.25rem;
-  position: relative;
-  transition: background 0.2s;
-}
-
-.history-item:hover { background: rgba(255,255,255,0.05); }
-.history-item.active { background: rgba(255,255,255,0.1); }
-
-.convo-icon { width: 16px; height: 16px; color: var(--text-muted); }
-.convo-title { flex: 1; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-.delete-btn {
-  opacity: 0;
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--text-main);
+  border-radius: 8px;
   cursor: pointer;
+  margin-bottom: 1rem;
+  transition: background 0.2s;
 }
 
-.history-item:hover .delete-btn { opacity: 1; }
-.delete-btn:hover { color: #f87171; }
+.sidebar-btn.new-chat:hover { background: var(--bg-card); }
 
-.sidebar-footer { padding: 1rem; border-top: 1px solid var(--border); }
-.user-profile { display: flex; align-items: center; gap: 0.75rem; font-size: 0.9rem; }
-.avatar { width: 32px; height: 32px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+.icon-wrap {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 0.75rem;
+}
+
+.sidebar-btn span { font-weight: 500; flex: 1; text-align: left; }
+
+.toggle-icon { opacity: 0.5; cursor: pointer; }
+.toggle-icon:hover { opacity: 1; }
+
+.sidebar-nav, .sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 1.5rem;
+}
+
+.sidebar-section label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 0.5rem 0.75rem;
+  text-transform: uppercase;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-main);
+  font-size: 0.9rem;
+  transition: background 0.2s;
+  gap: 0.75rem;
+}
+
+.nav-item:hover { background: var(--bg-card); }
+.nav-item i { font-size: 1.2rem; }
+
+.chat-history-item { justify-content: space-between; overflow: visible; }
+.chat-history-item.active { background: var(--bg-card); font-weight: 500; }
+
+.item-action-wrapper { position: relative; display: flex; align-items: center; }
+.item-action { background: none; border: none; color: var(--text-dim); cursor: pointer; opacity: 0; padding: 2px; border-radius: 4px; transition: all 0.2s; }
+.chat-history-item:hover .item-action { opacity: 1; }
+.item-action:hover {  color: var(--text-main); }
+
+.action-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.3rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  z-index: 200;
+  min-width: 120px;
+}
+.dropdown-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  transition: background 0.2s;
+}
+.dropdown-item.delete { color: #f87171; }
+.dropdown-item:hover { background: rgba(255,255,255,0.1); }
+
+.sidebar-footer {
+  padding: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.user-pill {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem;
+  gap: 0.75rem;
+  background: var(--bg-card);
+  border-radius: 12px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.user-pill:hover { background: #3a3a3a; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #10a37f, #0b7a5e);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.75rem;
+  color: white;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.upgrade-btn {
+  background: none;
+  color: var(--text-main);
+  border: none;
+  display: flex;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
 
 /* Main Content */
 .main-content {
   flex: 1;
-  min-width: 0;
   display: flex;
   flex-direction: column;
+  height: 100vh;
   position: relative;
-  height: 100%;
-  background: var(--bg-main);
-  overflow-y: auto;
+  overflow: hidden;
 }
 
-.top-nav {
-  height: 56px;
-  flex-shrink: 0;
+/* Header */
+.chat-header {
+  height: 60px;
   display: flex;
   align-items: center;
-  padding: 0 1rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-main);
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  z-index: 10;
 }
 
-.burger-btn { background: transparent; border: none; color: var(--text-main); cursor: pointer; display: none; margin-right: 1rem; }
-.app-name { font-weight: 600; font-size: 1.1rem; }
-
-/* Chat Container */
-.chat-container {
-  flex: 1;
-  padding: 2rem 1rem;
+.model-dropdown {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+.model-dropdown:hover { background: var(--bg-card); }
+
+.header-actions { display: flex; align-items: center; gap: 0.75rem; }
+
+.plus-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #3c3c44;
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+.plus-badge i { color: #8e8ea0; }
+.plus-badge .close-badge { font-size: 1rem; cursor: pointer; }
+
+.action-icon {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.action-icon:hover { background: var(--bg-card); }
+
+/* Chat Space */
+.messages-list-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem 0;
 }
 
-.hero-header {
-  margin: 10vh auto;
-  text-align: center;
-  max-width: 600px;
-  width: 100%;
-}
-
-.logo-circle { width: 80px; height: 80px; border: 2px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 2rem; font-size: 2.5rem; font-weight: 800; }
-.hero-title { font-size: 2.5rem; font-weight: 600; margin-bottom: 1rem; letter-spacing: -1px; }
-.hero-subtitle { color: var(--text-muted); font-size: 1.1rem; }
-
-.messages-list {
-  width: 100%;
-  max-width: 800px;
+.messages-container {
+  max-width: 950px;
+  margin: 0 auto;
+  padding: 0 1rem;
   display: flex;
   flex-direction: column;
   gap: 2rem;
-  margin: 0 auto;
 }
 
-.message-wrapper { display: flex; width: 100%; }
-.message-wrapper.user { justify-content: flex-start; }
-.message-wrapper.ai { justify-content: flex-end; }
-
-.message-bubble { max-width: 85%; }
-
-.user-text {
-  background-color: var(--bg-bubble-user);
-  padding: 0.75rem 1.25rem;
-  border-radius: 1.5rem;
-  font-size: 1rem;
-  line-height: 1.5;
+.welcome-screen {
+  height: 40vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* Simplified AI Result Card */
-.word-card-simple {
-  background: rgba(255,255,255,0.03);
+.welcome-logo {
+  width: 60px;
+  height: 60px;
   border: 1px solid var(--border);
-  border-radius: 1.5rem;
-  padding: 2rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  opacity: 0.8;
 }
 
-.word-header { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 0.5rem; }
-.word-nature { font-size: 0.7rem; color: var(--accent); text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
-.word-title { font-size: 2.5rem; font-weight: 700; }
-.word-phonetic { font-size: 1.1rem; color: var(--text-muted); }
+.message-row { display: flex; width: 100%; transition: opacity 0.3s; margin-bottom: 1.5rem; }
 
-.word-translation { font-size: 1.4rem; font-weight: 500; margin-bottom: 2rem; opacity: 0.9; }
+.message-row.user { justify-content: flex-end; }
+.user-bubble {
+    background: #2f2f2f;
+    padding: 0.75rem 1rem;
+    border-radius: 20px;
+    max-width: max-content;
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--text-main);
+    align-self: flex-end;
 
-.word-section { margin-bottom: 1.5rem; }
-.word-section label { display: block; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; font-weight: 600; }
-.word-section p { font-size: 1.1rem; line-height: 1.5; }
+}
 
-.syn-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.tag { background: rgba(59, 130, 246, 0.1); color: var(--accent); padding: 0.3rem 0.8rem; border-radius: 0.5rem; font-size: 0.85rem; }
+.ai-msg {
+  display: flex;
+  gap: 1.25rem;
+  width: 100%;
+}
 
-.example-box { margin-bottom: 1rem; padding-left: 1rem; border-left: 2px solid var(--border); }
-.example-box:last-child { margin-bottom: 0; }
-.example-box .en { font-size: 1.1rem; margin-bottom: 0.25rem; }
-.example-box .fr { font-size: 0.9rem; color: var(--text-muted); }
+.ai-avatar {
+  width: 32px;
+  height: 32px;
+  background: var(--accent-green);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 1.2rem;
+  color: white;
+}
 
-/* Input Area */
+.ai-text { flex: 1; font-size: 1rem; line-height: 1.6; }
+
+/* Markdown Styles */
+.markdown-body {
+  color: var(--text-main);
+  line-height: 1.6;
+}
+.markdown-body p { margin-bottom: 1rem; }
+.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body strong { font-weight: 600; color: #fff; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+  font-weight: 600;
+  color: #fff;
+}
+.markdown-body ul, .markdown-body ol { margin-bottom: 1rem; padding-left: 1.5rem; }
+.markdown-body li { margin-bottom: 0.25rem; }
+
+/* Result Card */
+.result-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.result-title { font-size: 1.4rem; font-weight: 700; }
+.result-title small { font-weight: 400; opacity: 0.5; font-size: 1rem; margin-left: 0.5rem; font-style: italic; }
+
+.result-meta { color: var(--text-dim); font-size: 0.9rem; margin-top: -0.5rem; }
+
+.section-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 0.5rem; }
+
+.tag-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.tag { background: var(--bg-card); padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.85rem; }
+
+.example-item { margin-bottom: 1rem; }
+.example-item .en { font-style: italic; color: var(--text-main); margin-bottom: 0.25rem; }
+.example-item .fr { font-size: 0.9rem; color: var(--text-dim); }
+
+/* Input Bar */
 .input-area {
-  padding: 1rem 1rem 2.5rem;
+  padding: 1.5rem 1rem 1rem;
   background: linear-gradient(to top, var(--bg-main) 70%, transparent);
 }
 
-.input-container { max-width: 800px; margin: 0 auto; width: 100%; }
+.input-wrapper {
+  max-width: 800px;
+  margin: 0 auto;
+  position: relative;
+}
 
-.input-box {
-  background: var(--bg-bubble-user);
-  border: 1px solid var(--border);
-  border-radius: 1.5rem;
-  padding: 0.5rem 0.5rem 0.5rem 1.5rem;
+.input-card {
+  background: var(--bg-card);
+  border-radius: 26px;
+  padding: 0.6rem 1rem;
   display: flex;
   align-items: center;
-  box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+  gap: 0.75rem;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
 }
 
-.input-box input {
+.input-card input {
   flex: 1;
-  background: transparent;
+  background: none;
   border: none;
-  color: white;
-  font-size: 1rem;
-  padding: 0.75rem 0;
+  color: var(--text-main);
   outline: none;
+  padding: 0.5rem 0;
+  font-size: 1rem;
 }
+
+.input-card input::placeholder { color: var(--text-dim); opacity: 0.5; }
+
+.attach-btn, .action-btn {
+  background: none;
+  border: none;
+  color: var(--text-main);
+  font-size: 1.4rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  opacity: 0.7;
+}
+
+.attach-btn:hover, .action-btn:hover { opacity: 1; color: var(--accent-green); }
 
 .send-btn {
-  width: 40px;
-  height: 40px;
-  background: var(--accent);
+  width: 32px;
+  height: 32px;
+  background: var(--text-main);
+  color: var(--bg-main);
   border: none;
   border-radius: 50%;
-  color: white;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: transform 0.2s;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 }
 
-.send-btn:hover:not(:disabled) { transform: scale(1.1); }
-.send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.send-btn:disabled { background: #3c3c44; color: #171717; cursor: default; box-shadow: none; }
+.send-btn:not(:disabled):hover { background: #fff; transform: scale(1.05); }
 
-.disclaimer { text-align: center; margin-top: 0.75rem; font-size: 0.7rem; color: var(--text-muted); }
+.footer-note {
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-top: 1rem;
+  opacity: 0.8;
+}
 
-/* Loading */
-.loading-bubble { background: rgba(255,255,255,0.05); padding: 1.5rem 2rem; border-radius: 1.5rem; }
-.dot-pulse { width: 10px; height: 10px; background: var(--text-muted); border-radius: 50%; animation: pulse 1s infinite alternate; }
-@keyframes pulse { from { opacity: 0.3; transform: scale(0.8); } to { opacity: 1; transform: scale(1.2); } }
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-card {
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2rem;
+  width: 90%;
+  max-width: 450px;
+  position: relative;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+
+.close-btn {
+  position: absolute;
+  top: 1rem; right: 1rem;
+  background: none; border: none;
+  color: var(--text-dim);
+  font-size: 1.5rem; cursor: pointer;
+  transition: color 0.2s;
+}
+.close-btn:hover { color: var(--text-main); }
+
+.modal-header {
+  display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem;
+}
+.avatar.large { width: 64px; height: 64px; font-size: 1.5rem; }
+.author-details h3 { font-size: 1.5rem; font-weight: 700; color: var(--text-main); }
+.author-details p { color: var(--accent-green); font-weight: 500; font-size: 0.95rem; }
+
+.info-section { margin-bottom: 1.5rem; }
+.info-section h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); margin-bottom: 0.75rem; }
+
+.tech-tags { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.tech-tag { padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 0.3rem; border: 1px solid var(--border); }
+.tech-tag.laravel { color: #f05340; background: rgba(240, 83, 64, 0.1); border-color: rgba(240, 83, 64, 0.3); }
+.tech-tag.vue { color: #4fc08d; background: rgba(79, 192, 141, 0.1); border-color: rgba(79, 192, 141, 0.3); }
+.tech-tag.fastapi { color: #009688; background: rgba(0, 150, 136, 0.1); border-color: rgba(0, 150, 136, 0.3); }
+
+.social-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.social-btn { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem; border-radius: 12px; background: var(--bg-card); color: var(--text-main); text-decoration: none; font-size: 0.9rem; transition: background 0.2s; border: 1px solid transparent; }
+.social-btn:hover { background: #3a3a3a; border-color: var(--border); }
+.social-btn i { font-size: 1.2rem; color: var(--text-dim); }
+
+.contact-links { display: flex; flex-direction: column; gap: 0.5rem; }
+.contact-link { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border-radius: 12px; text-decoration: none; font-weight: 500; font-size: 0.95rem; transition: transform 0.2s, background 0.2s; }
+.contact-link.whatsapp { background: #25D366; color: white; }
+.contact-link.whatsapp:hover { background: #20ba56; transform: translateY(-2px); }
+.contact-link.email { background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border); }
+.contact-link.email:hover { background: #3a3a3a; }
+
+.mobile-sidebar-toggle {
+  background: none;
+  border: none;
+  color: var(--text-main);
+  font-size: 1.5rem;
+  cursor: pointer;
+  margin-right: 1rem;
+}
+
+/* Typing Indicator */
+.typing-indicator { display: flex; gap: 4px; padding: 10px 0; }
+.typing-indicator span { width: 6px; height: 6px; background: var(--text-dim); border-radius: 50%; animation: blink 1s infinite both; }
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
 /* Mobile Adaptations */
 @media (max-width: 1024px) {
-  .sidebar { position: fixed; left: 0; top: 0; bottom: 0; transform: translateX(-100%); width: 280px; }
-  .sidebar-open .sidebar { transform: translateX(0); }
-  .burger-btn { display: block; }
-  .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999; }
+  .sidebar { position: fixed; height: 100%; transform: translateX(-100%); width: 280px; }
+  .sidebar-closed .sidebar { transform: translateX(-100%); }
+  .chatgpt-app:not(.sidebar-closed) .sidebar { transform: translateX(0); box-shadow: 10px 0 30px rgba(0,0,0,0.5); }
+  .chatgpt-app { overflow: hidden; }
 }
-
-@media (max-width: 640px) {
-  .hero-title { font-size: 1.8rem; }
-  .word-title { font-size: 1.8rem; }
-}
-
-.icon { width: 20px; height: 20px; }
 </style>
