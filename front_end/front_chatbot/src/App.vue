@@ -160,9 +160,17 @@ onMounted(() => {
       </div>
       
       <div class="sidebar-footer">
-          <button class="upgrade-btn" @click="showAboutModal = true">
-             <i class='bx bx-info-circle' style="margin-right: 4px;"></i> En savoir plus
-          </button>
+        <button class="about-author-btn" @click="showAboutModal = true">
+          <div class="author-avatar-modern">
+            <span class="initials">AM</span>
+            <div class="glow-ring"></div>
+          </div>
+          <div class="author-info-modern">
+            <span class="author-name">Abdou Mandara</span>
+            <span class="author-role">Découvrir le créateur ✨</span>
+          </div>
+          <i class='bx bx-chevron-right icon-arrow'></i>
+        </button>
       </div>
     </aside>
 
@@ -488,45 +496,122 @@ body {
 .dropdown-item:hover { background: rgba(255,255,255,0.1); }
 
 .sidebar-footer {
-  padding: 0.75rem;
-  border-top: 1px solid var(--border);
+  padding: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(to top, rgba(0,0,0,0.2) 0%, transparent 100%);
 }
 
-.user-pill {
+.about-author-btn {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 0.6rem;
   display: flex;
   align-items: center;
-  padding: 0.5rem;
-  gap: 0.75rem;
-  background: var(--bg-card);
-  border-radius: 12px;
-  transition: transform 0.2s, box-shadow 0.2s;
+  gap: 0.8rem;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  color: var(--text-main);
+  position: relative;
+  overflow: hidden;
 }
-.user-pill:hover { background: #3a3a3a; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
 
-.avatar {
-  width: 32px;
-  height: 32px;
-  background: linear-gradient(135deg, #10a37f, #0b7a5e);
+.about-author-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(16, 163, 127, 0.15), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.about-author-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(16, 163, 127, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 12px rgba(16, 163, 127, 0.15);
+}
+
+.about-author-btn:hover::before {
+  opacity: 1;
+}
+
+.author-avatar-modern {
+  position: relative;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
+  background: linear-gradient(135deg, #10a37f 0%, #066049 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
-  font-size: 0.75rem;
-  color: white;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  flex-shrink: 0;
+  z-index: 2;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
 }
 
-.upgrade-btn {
-  background: none;
-  color: var(--text-main);
-  border: none;
+.author-avatar-modern .initials {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+.glow-ring {
+  position: absolute;
+  top: -2px; left: -2px; right: -2px; bottom: -2px;
+  border-radius: 50%;
+  border: 1px solid rgba(16, 163, 127, 0.6);
+  opacity: 0;
+  transform: scale(0.9);
+  transition: all 0.3s ease;
+}
+
+.about-author-btn:hover .glow-ring {
+  opacity: 1;
+  transform: scale(1);
+  animation: spinGlow 4s linear infinite;
+}
+
+@keyframes spinGlow {
+  100% { transform: scale(1) rotate(360deg); }
+}
+
+.author-info-modern {
+  flex: 1;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  z-index: 2;
+}
+
+.author-info-modern .author-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.author-info-modern .author-role {
   font-size: 0.7rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
+  color: var(--text-dim);
+  margin-top: 2px;
+  transition: color 0.3s;
+}
+
+.about-author-btn:hover .author-role {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.icon-arrow {
+  font-size: 1.3rem;
+  color: rgba(255,255,255,0.4);
+  z-index: 2;
+  transition: transform 0.3s ease, color 0.3s ease;
+}
+
+.about-author-btn:hover .icon-arrow {
+  color: #10a37f;
+  transform: translateX(4px);
 }
 
 /* Main Content */
