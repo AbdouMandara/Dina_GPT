@@ -167,7 +167,7 @@ onMounted(() => {
           </div>
           <div class="author-info-modern">
             <span class="author-name">Abdou Mandara</span>
-            <span class="author-role">Découvrir le créateur ✨</span>
+            <span class="author-role">Découvrir le créateur</span>
           </div>
           <i class='bx bx-chevron-right icon-arrow'></i>
         </button>
@@ -211,7 +211,7 @@ onMounted(() => {
               <!-- AI Message -->
               <div v-else class="ai-msg">
                 <div class="ai-avatar">
-                  <i class='bx bxs-bot'></i>
+                  <i class='bx bx-aperture'></i>
                 </div>
                 <div class="ai-text">
                   <!-- General Chat Message (Markdown) -->
@@ -727,63 +727,125 @@ body {
 
 .ai-msg {
   display: flex;
-  gap: 1.25rem;
+  gap: 1.5rem;
   width: 100%;
 }
 
 .ai-avatar {
-  width: 32px;
-  height: 32px;
-  background: var(--accent-green);
-  border: 1px solid var(--border);
-  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  background: linear-gradient(135deg, rgba(16, 163, 127, 0.9) 0%, rgba(6, 96, 73, 0.9) 100%);
+  border: 1px solid rgba(16, 163, 127, 0.5);
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: 1.2rem;
-  color: white;
+  font-size: 1.4rem;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.02);
+  transform: rotate(-5deg);
+  transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.4s;
 }
 
-.ai-text { flex: 1; font-size: 1rem; line-height: 1.6; }
+.ai-text { flex: 1; font-size: 1.05rem; line-height: 1.7; color: #d1d5db; }
 
 /* Markdown Styles */
 .markdown-body {
-  color: var(--text-main);
-  line-height: 1.6;
+  color: #e5e7eb;
 }
-.markdown-body p { margin-bottom: 1rem; }
+.markdown-body p { margin-bottom: 1.25rem; }
 .markdown-body p:last-child { margin-bottom: 0; }
-.markdown-body strong { font-weight: 600; color: #fff; }
+.markdown-body strong { font-weight: 600; color: #10a37f; }
 .markdown-body h1, .markdown-body h2, .markdown-body h3 {
-  margin-top: 1.5rem;
+  margin-top: 1.75rem;
   margin-bottom: 1rem;
-  font-weight: 600;
+  font-weight: 700;
   color: #fff;
+  letter-spacing: -0.02em;
 }
-.markdown-body ul, .markdown-body ol { margin-bottom: 1rem; padding-left: 1.5rem; }
-.markdown-body li { margin-bottom: 0.25rem; }
+.markdown-body h2 {
+  font-size: 1.4rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.markdown-body ul, .markdown-body ol { margin-bottom: 1.25rem; padding-left: 1.5rem; }
+.markdown-body li { margin-bottom: 0.5rem; position: relative; }
+.markdown-body li::marker { color: #10a37f; }
+.markdown-body pre { background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 12px; overflow-x: auto; margin-bottom: 1.25rem; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 2px 10px rgba(0,0,0,0.5); }
+.markdown-body code { font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 0.9em; background: rgba(255,255,255,0.1); padding: 0.2rem 0.4rem; border-radius: 6px; color: #f3f4f6; }
+.markdown-body pre code { background: transparent; padding: 0; color: #a7f3d0; }
 
 /* Result Card */
 .result-card {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 1.8rem;
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
 }
 
-.result-title { font-size: 1.4rem; font-weight: 700; }
-.result-title small { font-weight: 400; opacity: 0.5; font-size: 1rem; margin-left: 0.5rem; font-style: italic; }
 
-.result-meta { color: var(--text-dim); font-size: 0.9rem; margin-top: -0.5rem; }
+.result-title { 
+  font-size: 1.8rem; 
+  font-weight: 800; 
+  background: linear-gradient(90deg, #ffffff, #a7f3d0);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.result-title small { font-weight: 500; font-size: 1.1rem; margin-left: 0.5rem; font-style: italic; -webkit-text-fill-color: rgba(255,255,255,0.5); }
 
-.section-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 0.5rem; }
+.result-meta { 
+  color: #9ca3af; 
+  font-size: 0.95rem; 
+  margin-top: -1rem; 
+  font-weight: 500;
+  display: inline-block;
+  padding: 0.3rem 0.8rem;
+  background: rgba(255,255,255,0.05);
+  border-radius: 20px;
+  width: fit-content;
+  border: 1px solid rgba(255,255,255,0.02);
+}
 
-.tag-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.tag { background: var(--bg-card); padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.85rem; }
+.section-label { 
+  font-size: 0.75rem; 
+  text-transform: uppercase; 
+  letter-spacing: 0.15em; 
+  margin-bottom: 0.75rem; 
+  font-weight: 700;
+}
 
-.example-item { margin-bottom: 1rem; }
-.example-item .en { font-style: italic; color: var(--text-main); margin-bottom: 0.25rem; }
-.example-item .fr { font-size: 0.9rem; color: var(--text-dim); }
+.tag-list { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.tag { 
+  background: rgba(16, 163, 127, 0.1); 
+  color: #34d399;
+  border: 1px solid rgba(16, 163, 127, 0.25);
+  padding: 0.3rem 0.8rem; 
+  border-radius: 8px; 
+  font-size: 0.85rem; 
+  font-weight: 500;
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.example-item { 
+  margin-bottom: 1.25rem; 
+  padding-left: 1rem;
+  background: rgba(255,255,255,0.02);
+  padding: 0.8rem 1rem;
+  border-radius: 0 12px 12px 0;
+  transition: background 0.2s;
+}
+.example-item:hover { background: rgba(255,255,255,0.04); border-left-color: #10a37f; }
+.example-item:last-child { margin-bottom: 0; }
+.example-item .en { font-style: italic; color: #f9fafb; margin-bottom: 0.4rem; font-size: 1.05rem;}
+.example-item .fr { font-size: 0.95rem; color: #9ca3af; }
 
 /* Input Bar */
 .input-area {
